@@ -193,7 +193,8 @@ class TestUrbanRoutes:
         )
         add_ice_cream.click()
         add_ice_cream.click()
-        assert self.driver.find_element(By.XPATH, "//div[@class=counter-value]")==2
+        assert self.driver.find_element(By.XPATH, "//div[@class='counter-value']").text == "2"
+
     def test_taxi_module(self):
         self.test_set_route()
         # Entrar al boton de pedir un taxi
