@@ -1,71 +1,9 @@
 from selenium import webdriver
-from selenium.webdriver import Keys
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
 import data
-# no modificar
-
-def retrieve_phone_code(driver) -> str:
-    """Este código devuelve un número de confirmación de teléfono y lo devuelve como un string.
-    Utilízalo cuando la aplicación espere el código de confirmación para pasarlo a tus pruebas.
-    El código de confirmación del teléfono solo se puede obtener después de haberlo solicitado en la aplicación."""
-
-    import json
-    import time
-    from selenium.common import WebDriverException
-    code = None
-    for i in range(10):
-        try:
-            logs = [log["message"] for log in driver.get_log('performance') if log.get("message")
-                    and 'api/v1/number?number' in log.get("message")]
-            for log in reversed(logs):
-                message_data = json.loads(log)["message"]
-                body = driver.execute_cdp_cmd('Network.getResponseBody',
-                                              {'requestId': message_data["params"]["requestId"]})
-                code = ''.join([x for x in body['body'] if x.isdigit()])
-        except WebDriverException:
-            time.sleep(1)
-            continue
-        if not code:
-            raise Exception("No se encontró el código de confirmación del teléfono.\n"
-                            "Utiliza 'retrieve_phone_code' solo después de haber solicitado el código en tu aplicación.")
-        return code
-
-
-class UrbanRoutesPage:
-    from_field = (By.ID, 'from')
-    to_field = (By.ID, 'to')
-    confort_plan= (By.XPATH,"//div[contains(@class, 'taxis')]//div[text()='Comfort']")
-
-
-
-    def __init__(self, driver):
-        self.driver = driver
-
-    def set_from(self, from_address):
-        WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located(self.from_field))
-        self.driver.find_element(*self.from_field).send_keys(from_address)
-
-    def set_to(self, to_address):
-        WebDriverWait(self.driver, 10).until(EC.visibility_of_element_located(self.to_field))
-        self.driver.find_element(*self.to_field).send_keys(to_address)
-
-    def get_from(self):
-        return self.driver.find_element(*self.from_field).get_property('value')
-
-    def get_to(self):
-        return self.driver.find_element(*self.to_field).get_property('value')
-
-    def set_route(self, address_from, address_to):
-        self.set_from(address_from)
-        self.set_to(address_to)
-
-
+from pages import UrbanRoutesPage
 
 class TestUrbanRoutes:
     driver = None
-
 
     @classmethod
     def setup_class(cls):
@@ -86,172 +24,98 @@ class TestUrbanRoutes:
         assert routes_page.get_to() == address_to
 
     def test_set_confort(self):
+        self.routes_page = UrbanRoutesPage(self.driver)
         self.test_set_route()
-
-        #Entrar al boton de pedir un taxi
-        button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Pedir un taxi')]"))
-        )
-        button.click()
-
-        #seleccionar el plan comfort
-        confort_button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='tcard-title' and text()='Comfort']"))
-        )
-        confort_button.click()
+        self.routes_page.button_get_taxi()
+        self.routes_page.set_confort_plan()
         #Verificar que se activo
-        assert confort_button.is_enabled(), "La tarjeta Comfort no está habilitada"
+        assert self.routes_page.set_confort_plan().is_enabled(), "La tarjeta Comfort no está habilitada"
 
     def test_set_telefonic_number(self):
+            self.routes_page = UrbanRoutesPage(self.driver)
             self.test_set_confort()
-
             # Abrir formulario
-            label_access_number_formulary = self.driver.find_element(
-                By.XPATH, "//div[@class='np-text' and text()='Número de teléfono']"
-            )
-            label_access_number_formulary.click()
+            self.routes_page.open_number_formulary()
 
             # Esperar el input y escribir el número
-            input_number = WebDriverWait(self.driver, 10).until(
-                EC.visibility_of_element_located((By.XPATH, "//input[@id='phone' and @class='input']"))
-            )
-            input_number.send_keys(data.phone_number)
+            self.routes_page.label_number_data_key()
 
             # Verificar que el número fue ingresado
-            assert input_number.get_attribute("value") == data.phone_number, "El número no coincide"
+            assert self.routes_page.label_number().get_attribute("value") == data.phone_number, "El número no coincide"
 
             # Enviar el formulario
-            button_submit_number = self.driver.find_element(
-                By.XPATH, "//button[@class='button full' and contains(text(),'Siguiente')]"
-            )
-            button_submit_number.click()
+            self.routes_page.button_submit_number()
 
             #Obtener el codigo y ponerlo en el input
-            input_code =  WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@id='code' and @class='input']"))
-            )
-            input_code.send_keys(retrieve_phone_code(self.driver))
-            self.driver.find_element(By.XPATH, '//button[@class="button full" and contains(text(), "Confirmar")]').click()
+            self.routes_page.input_code()
+            self.routes_page.input_code_retrieved()
+            self.routes_page.button_submit_code()
 
             # Assert para verificar que el numero sea igual al de data
-            assert label_access_number_formulary.text == data.phone_number
+            assert self.routes_page.assert_saved_number() == data.phone_number
 
     def test_add_credit_card(self):
-        self.test_set_confort()
+            self.test_set_confort()
+            self.routes_page = UrbanRoutesPage(self.driver)
+            #acceder al formulario de tipo de pago
+            self.routes_page.open_payment_form()
+            self.routes_page.add_card_form()
+            #añade los numeros de la tarje1ta
+            self.routes_page.card_numbers_send_key()
 
-        #acceder al formulario de tipo de pago
-        payment_method= WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='pp-text' and text()='Método de pago']"))
-        )
-        payment_method.click()
+            #añade el codigo de la tarjeta
+            self.routes_page.card_code_sendkeys()
 
-        #añadir la tarjeta
-        add_card_button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='pp-title' and text()='Agregar tarjeta']"))
-        )
-        add_card_button.click()
+            #Da click al boton agregar
+            self.routes_page.submit_card_form()
 
-        #añade los numeros de la tarjeta
-        config_numbers_card=WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@id='number' and @class='card-input']"))
-        )
-        config_numbers_card.send_keys(data.card_number)
-
-        #añade el codigo de la tarjeta
-        config_code_card= self.driver.find_element(By.XPATH, "//input[@id='code' and @class='card-input']")
-        config_code_card.send_keys(data.card_code)
-
-        #Da click al boton agregar
-        config_code_card.send_keys(Keys.TAB)
-        submit_button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[@class='button full' and contains(text(), 'Agregar')]"))
-        )
-        submit_button.click()
-
-        #Verifica si se agregó
-        checkbox_card_method= WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH,"//input[@id='card-1' and @class='checkbox']"))
-            )
-        assert checkbox_card_method.is_selected(), 'no se agregó'
+            #Verifica si se agregó
+            assert self.routes_page.assert_checkbox().is_selected(), 'no se agregó'
 
     def test_add_driver_message(self):
         self.test_set_confort()
-        message_label= WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH,"//input[@id='comment' and @class='input']")))
-        message_label.send_keys(data.message_for_driver)
-        assert message_label.get_attribute("value")== data.message_for_driver, "El mensaje no coincide"
+        self.routes_page = UrbanRoutesPage(self.driver)
+        self.routes_page.label_message_for_driver().send_keys(data.message_for_driver)
+        assert self.routes_page.label_message_for_driver().get_attribute("value")== data.message_for_driver, "El mensaje no coincide"
     def test_add_blanket_(self):
         self.test_set_confort()
-        add_blanket = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//span[@class='slider round']"))
-        )
-        add_blanket.click()
-        print('Se selecciono correctamente')
+        self.routes_page = UrbanRoutesPage(self.driver)
+        self.routes_page.add_blanket_()
+        assert self.routes_page.assert_checkbox_blanket().get_attribute("checked") == "true",  "Manta y pañuelos no está activado"
     def test_add_ice_cream(self):
         self.test_set_confort()
-        add_ice_cream = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='counter-plus']"))
-        )
-        add_ice_cream.click()
-        add_ice_cream.click()
-        assert self.driver.find_element(By.XPATH, "//div[@class='counter-value']").text == "2"
+        self.routes_page = UrbanRoutesPage(self.driver)
+        self.routes_page.add_ice_2_clicks()
+        assert self.routes_page.ice_cream_counter().text == "2"
 
     def test_taxi_module(self):
         self.test_set_route()
-        # Entrar al boton de pedir un taxi
-        button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Pedir un taxi')]"))
-        )
-        button.click()
-
-        # seleccionar el plan comfort
-        confort_button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='tcard-title' and text()='Glamuroso']"))
-        )
-        confort_button.click()
-
-        # Abrir formulario
-        label_access_number_formulary = self.driver.find_element(
-            By.XPATH, "//div[@class='np-text' and text()='Número de teléfono']"
-        )
-        label_access_number_formulary.click()
+        self.routes_page = UrbanRoutesPage(self.driver)
+        self.routes_page.button_get_taxi()
+        self.routes_page.set_glamorous_plan()
+            # Abrir formulario
+        self.routes_page.open_number_formulary()
 
         # Esperar el input y escribir el número
-        input_number = WebDriverWait(self.driver, 10).until(
-            EC.visibility_of_element_located((By.XPATH, "//input[@id='phone' and @class='input']"))
-        )
-        input_number.send_keys(data.phone_number)
+        self.routes_page.label_number_data_key()
 
         # Verificar que el número fue ingresado
-        assert input_number.get_attribute("value") == data.phone_number, "El número no coincide"
+        assert self.routes_page.label_number().get_attribute("value") == data.phone_number, "El número no coincide"
 
         # Enviar el formulario
-        button_submit_number = self.driver.find_element(
-            By.XPATH, "//button[@class='button full' and contains(text(),'Siguiente')]"
-        )
-        button_submit_number.click()
+        self.routes_page.button_submit_number()
 
         # Obtener el codigo y ponerlo en el input
-        input_code = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@id='code' and @class='input']"))
-        )
-        input_code.send_keys(retrieve_phone_code(self.driver))
-        self.driver.find_element(By.XPATH, '//button[@class="button full" and contains(text(), "Confirmar")]').click()
+        self.routes_page.input_code()
+        self.routes_page.input_code_retrieved()
+        self.routes_page.button_submit_code()
 
         #Ahora si dar click al pedir taxi
-        get_taxi= WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, '//span[@class="smart-button-main"]'))
-        )
-        get_taxi.click()
-        assert self.driver.find_element(By.XPATH,'//div[@class="order-body"]').is_displayed()
+        self.routes_page.final_get_taxi()
+        assert self.routes_page.assert_taxi_module().is_displayed()
     def test_wait_driver(self):
         self.test_taxi_module()
-        driver_text = WebDriverWait(self.driver, 120).until(
-            EC.visibility_of_element_located((By.XPATH,  "//div[@class='order-header-content']//div[@class='order-number']"))
-        )
-        assert driver_text.is_displayed()
-
-
-
+        assert self.routes_page.driver_module_text().is_displayed()
 
     @classmethod
     def teardown_class(cls):
